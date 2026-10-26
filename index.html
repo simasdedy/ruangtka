@@ -111,4 +111,128 @@ adminField('adminSubject').addEventListener('change',()=>{adminRefreshList();adm
 adminField('adminDelete').addEventListener('click',()=>{if(adminEditing<0)return;const s=adminField('adminSubject').value;if(!confirm('Hapus soal ini?'))return;bank[s].questions.splice(adminEditing,1);adminRefreshList();adminClear();renderSubjects();updateSetup();adminMessage('Soal berhasil dihapus dari demo ini.');});
 adminField('adminExport').addEventListener('click',adminDownload);adminField('adminImportBtn').addEventListener('click',()=>adminField('adminImportFile').click());adminField('adminImportFile').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{const parsed=JSON.parse(await file.text());if(!parsed||typeof parsed!=='object'||!Object.keys(bank).every(k=>Array.isArray(parsed[k]?.questions)))throw new Error('Format tidak sesuai');for(const k of Object.keys(bank)){if(!Array.isArray(parsed[k].questions)||parsed[k].questions.some(q=>typeof q.q!=='string'||!Array.isArray(q.opts)||q.opts.length!==5||!Number.isInteger(q.a)||q.a<0||q.a>4||typeof q.exp!=='string'))throw new Error('Data soal tidak valid');}for(const k of Object.keys(bank))bank[k].questions=parsed[k].questions;renderSubjects();updateSetup();adminRefreshList();adminClear();adminMessage('Impor berhasil. Bank soal demo sudah diperbarui.');}catch(err){adminMessage('Gagal impor: pastikan file JSON berasal dari ekspor RuangTKA dan formatnya benar.')}e.target.value='';});
 adminInit();
-</script></body></html>
+</script>
+<!-- RuangTKA: tes login dan koneksi Supabase -->
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+
+<section id="supabase-test" style="max-width:700px;margin:24px auto;padding:20px;background:#fff;border:1px solid #dbe5ef;border-radius:14px;font-family:Arial,sans-serif;color:#173b60">
+  <h2>Login RuangTKA</h2>
+  <p>Masuk untuk menguji koneksi akun dan bank soal.</p>
+
+  <form id="login-form">
+    <label for="login-email">Email</label><br>
+    <input id="login-email" type="email" required autocomplete="username"
+      style="width:100%;padding:10px;margin:6px 0 12px;box-sizing:border-box">
+
+    <label for="login-password">Password</label><br>
+    <input id="login-password" type="password" required autocomplete="current-password"
+      style="width:100%;padding:10px;margin:6px 0 12px;box-sizing:border-box">
+
+    <button type="submit" style="padding:10px 16px;cursor:pointer">Login dan tes database</button>
+    <button type="button" id="logout-button" style="padding:10px 16px;cursor:pointer">Logout</button>
+  </form>
+
+  <p id="connection-status" role="status">Belum terhubung.</p>
+  <div id="question-results"></div>
+</section>
+
+<script>
+(() => {
+  // Ganti kedua nilai ini dengan konfigurasi proyek Supabase milik Anda.
+  const SUPABASE_URL = "https://txborleyneuunujusesw.supabase.co";
+  const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_eIc7tHuSDYg6HbnZzH9-Kg_kHrNDri2";
+
+  const statusBox = document.getElementById("connection-status");
+  const resultsBox = document.getElementById("question-results");
+  const form = document.getElementById("login-form");
+  const logoutButton = document.getElementById("logout-button");
+
+  if (
+    SUPABASE_URL.includes("TEMPEL_") ||
+    SUPABASE_PUBLISHABLE_KEY.includes("TEMPEL_")
+  ) {
+    statusBox.textContent = "Konfigurasi Supabase belum diisi.";
+    return;
+  }
+
+  const client = window.supabase.createClient(
+    SUPABASE_URL,
+    SUPABASE_PUBLISHABLE_KEY
+  );
+
+  async function loadQuestions() {
+    statusBox.textContent = "Login berhasil. Membaca bank soal...";
+    resultsBox.replaceChildren();
+
+    const { data, error } = await client
+      .from("questions")
+      .select("id, subject, question, options, correct_answer, explanation")
+      .order("id")
+      .limit(100);
+
+    if (error) {
+      statusBox.textContent = "Login berhasil, tetapi soal gagal dibaca: " + error.message;
+      return;
+    }
+
+    statusBox.textContent = "Koneksi berhasil. " + data.length + " soal berhasil dibaca.";
+
+    if (data.length === 0) {
+      resultsBox.textContent = "Tabel berhasil diakses, tetapi belum ada soal.";
+      return;
+    }
+
+    const heading = document.createElement("h3");
+    heading.textContent = "Contoh soal dari database";
+    resultsBox.appendChild(heading);
+
+    data.slice(0, 5).forEach((item) => {
+      const article = document.createElement("article");
+      article.style.cssText = "padding:12px 0;border-top:1px solid #dbe5ef";
+
+      const subject = document.createElement("strong");
+      subject.textContent = item.subject || "Tanpa mata pelajaran";
+
+      const question = document.createElement("p");
+      question.textContent = item.question || "(Soal kosong)";
+
+      article.append(subject, question);
+      resultsBox.appendChild(article);
+    });
+  }
+
+  form.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    statusBox.textContent = "Memeriksa login...";
+    resultsBox.replaceChildren();
+
+    const email = document.getElementById("login-email").value;
+    const password = document.getElementById("login-password").value;
+
+    const { error } = await client.auth.signInWithPassword({ email, password });
+
+    if (error) {
+      statusBox.textContent = "Login gagal: " + error.message;
+      return;
+    }
+
+    document.getElementById("login-password").value = "";
+    await loadQuestions();
+  });
+
+  logoutButton.addEventListener("click", async () => {
+    const { error } = await client.auth.signOut();
+    resultsBox.replaceChildren();
+    statusBox.textContent = error ? "Logout gagal: " + error.message : "Anda sudah logout.";
+  });
+
+  client.auth.getSession().then(({ data, error }) => {
+    if (error) {
+      statusBox.textContent = "Gagal memeriksa sesi: " + error.message;
+    } else if (data.session) {
+      loadQuestions();
+    }
+  });
+})();
+</script>
+</body></html>
