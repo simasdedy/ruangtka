@@ -10,6 +10,18 @@
 </style></head>
 <body><main class="app" id="app">
 <header class="topbar"><div class="brand"><div class="logo">✦</div><div>RuangTKA<small>LATIHAN AKADEMIK SMA</small></div></div><div class="top-note">Belajar terarah. Siap melangkah.</div></header>
+<div class="wrap" style="padding-bottom:0">
+<section class="panel" id="studentAuthPanel" style="max-width:620px;margin:0 auto 8px">
+<div class="section-head" style="margin-top:0"><div><h2>Login Siswa RuangTKA</h2><p>Masuk menggunakan email dan kata sandi akun siswa yang sudah terdaftar.</p></div></div>
+<div id="studentAuthStatus" role="status" style="font-size:13px;line-height:1.5;margin-bottom:12px;color:#64748b">Memuat layanan login...</div>
+<form id="studentLoginForm" style="display:grid;gap:12px">
+<label style="display:grid;gap:6px;font-size:13px;font-weight:700">Email siswa<input id="studentEmail" type="email" autocomplete="username" required placeholder="nama@email.com" style="font:inherit;padding:12px;border:1px solid #D4DFEA;border-radius:11px;background:transparent;color:inherit"></label>
+<label style="display:grid;gap:6px;font-size:13px;font-weight:700">Kata sandi<input id="studentPassword" type="password" autocomplete="current-password" required placeholder="Masukkan kata sandi" style="font:inherit;padding:12px;border:1px solid #D4DFEA;border-radius:11px;background:transparent;color:inherit"></label>
+<button class="btn primary" id="studentLoginBtn" type="submit">Login siswa</button>
+</form>
+<div id="studentSession" class="hidden" style="margin-top:14px;padding:14px;border-radius:12px;background:light-dark(#E6F8F5,#153B3A);font-size:13px;line-height:1.6"><strong>Berhasil login</strong><div id="studentIdentity"></div><button class="btn secondary" id="studentLogoutBtn" type="button" style="margin-top:10px">Logout</button></div>
+<p style="font-size:12px;line-height:1.5;color:#728296;margin-bottom:0">Gunakan akun siswa yang dibuat di Supabase Authentication. Jangan bagikan kata sandi kepada siapa pun.</p>
+</section></div>
 <div class="wrap">
 <div style="display:flex;justify-content:flex-end;margin-bottom:14px"><button class="btn secondary" id="adminToggle">⚙️ Dashboard Admin</button></div>
 <section class="panel hidden" id="adminPanel" style="margin-bottom:22px">
@@ -63,6 +75,7 @@ alter table public.questions enable row level security;
 <section class="panel result" id="result"><div class="score-head"><div class="score-circle" id="scoreCircle">0</div><div><h3 id="resultTitle">Latihan selesai!</h3><p id="resultDesc">Lihat hasil dan pelajari pembahasannya di bawah.</p></div></div><div class="result-stats"><div class="result-stat"><strong id="correctCount">0</strong><span>Jawaban benar</span></div><div class="result-stat"><strong id="wrongCount">0</strong><span>Belum tepat / kosong</span></div><div class="result-stat"><strong id="answeredCount">0/3</strong><span>Terjawab</span></div></div><button class="btn primary" id="retryBtn">Coba lagi</button> <button class="btn secondary" id="backBtn">Pilih mata pelajaran lain</button><div class="section-head"><div><h2>Pembahasan soal</h2><p>Gunakan pembahasan untuk memahami konsepnya.</p></div></div><div id="review"></div></section>
 <p class="footnote">Catatan: Ini adalah prototipe demonstrasi dengan contoh soal buatan untuk menguji fitur. Bukan aplikasi resmi TKA dan belum menyimpan akun atau hasil ke server. Sebelum dijual, isi dengan soal orisinal yang sudah ditelaah dan sesuaikan dengan kerangka asesmen resmi.</p>
 </div></main>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 <script>
 const bank={
 "Matematika":{icon:"📐",desc:"Penalaran dan pemecahan masalah",questions:[
@@ -86,14 +99,15 @@ const bank={
 {q:"Dalam rantai makanan rumput → belalang → katak → ular, organisme yang berperan sebagai konsumen tingkat pertama adalah ...",opts:["Rumput","Belalang","Katak","Ular","Jamur"],a:1,exp:"Belalang memakan produsen (rumput), sehingga belalang adalah konsumen tingkat pertama."},
 {q:"Materi genetik utama yang membawa informasi pewarisan sifat pada sebagian besar organisme adalah ...",opts:["Lipid","Glukosa","Selulosa","DNA","Air"],a:3,exp:"DNA menyimpan informasi genetik yang diwariskan dan menjadi dasar sintesis RNA serta protein."}]}
 };
-let selected="Matematika",questions=[],answers=[],flags=[],idx=0,seconds=600,tick=null,finished=false;
+let selected="Matematika",questions=[],answers=[],flags=[],idx=0,seconds=600,tick=null,finished=false,onlineAttemptId=null;
 const $=id=>document.getElementById(id);
 function renderSubjects(){ $('subjectGrid').innerHTML=Object.entries(bank).map(([name,s])=>`<button class="subject ${selected===name?'active':''}" data-subject="${name}"><span class="emoji">${s.icon}</span><strong>${name}</strong><small>${s.questions.length} soal demo</small></button>`).join('');document.querySelectorAll('[data-subject]').forEach(b=>b.addEventListener('click',()=>{selected=b.dataset.subject;renderSubjects();updateSetup();$('practice').classList.remove('show');$('result').classList.remove('show')}));}
 function updateSetup(){$('selectedTitle').textContent=selected;$('selectedInfo').textContent=`${bank[selected].questions.length} contoh soal • Pilihan ganda • Ada pembahasan`;$('subjectPill').textContent=selected.toUpperCase()}
-function start(){clearInterval(tick);questions=bank[selected].questions;answers=Array(questions.length).fill(null);flags=Array(questions.length).fill(false);idx=0;seconds=Number($('duration').value)*60;finished=false;$('practice').classList.add('show');$('result').classList.remove('show');$('toast').classList.remove('show');renderQuestion();tick=setInterval(()=>{seconds--;renderTimer();if(seconds<=0){clearInterval(tick);finish(true)}},1000);$('practice').scrollIntoView({behavior:'smooth',block:'start'})}
+async function start(){clearInterval(tick);$('startBtn').disabled=true;$('toast').classList.remove('show');try{if(!window.ruangtkaSupabase){throw new Error('Layanan Supabase belum siap. Muat ulang halaman lalu login kembali.')}const {data:sessionData,error:sessionError}=await ruangtkaSupabase.auth.getSession();if(sessionError||!sessionData?.session?.access_token){throw new Error('Silakan login menggunakan akun siswa sebelum memulai latihan.')}const response=await fetch(`${RUANGTKA_SUPABASE_URL}/functions/v1/ruangtka-quiz`,{method:'POST',headers:{'Content-Type':'application/json','apikey':RUANGTKA_SUPABASE_PUBLISHABLE_KEY,'Authorization':`Bearer ${sessionData.session.access_token}`},body:JSON.stringify({action:'start_quiz',subject:selected})});const payload=await response.json();if(!response.ok||!payload.success){throw new Error(payload.error||'Gagal memulai latihan online.')}onlineAttemptId=payload.attempt.id;questions=(payload.questions||[]).map(q=>({id:q.id,q:q.question,opts:Array.isArray(q.options)?q.options:[],a:null,exp:''}));if(!questions.length){throw new Error('Belum ada soal untuk mata pelajaran ini di database.')}answers=Array(questions.length).fill(null);flags=Array(questions.length).fill(false);idx=0;seconds=Number($('duration').value)*60;finished=false;$('practice').classList.add('show');$('result').classList.remove('show');$('toast').classList.remove('show');renderQuestion();tick=setInterval(()=>{seconds--;renderTimer();if(seconds<=0){clearInterval(tick);finish(true)}},1000);$('practice').scrollIntoView({behavior:'smooth',block:'start'});$('toast').textContent='Soal dimuat dari database online. Penilaian server belum aktif; jangan anggap hasil demo sebagai nilai resmi.';$('toast').classList.add('show')}catch(error){$('toast').textContent=error.message||'Terjadi kesalahan saat memulai latihan.';$('toast').classList.add('show')}finally{$('startBtn').disabled=false}}
 function renderTimer(){let m=Math.floor(seconds/60),s=seconds%60;$('timer').textContent=`${m}:${String(s).padStart(2,'0')} tersisa`;if(seconds<=60)$('timer').style.color='#DC6262';else $('timer').style.color='';}
 function renderQuestion(){let q=questions[idx];$('questionCounter').textContent=`Soal ${idx+1} dari ${questions.length}`;$('qMeta').textContent=`SOAL ${String(idx+1).padStart(2,'0')}`;$('questionText').textContent=q.q;$('progressIn').style.width=`${(idx+1)/questions.length*100}%`;$('options').innerHTML=q.opts.map((o,i)=>`<button class="option ${answers[idx]===i?'selected':''}" data-opt="${i}"><span class="letter">${String.fromCharCode(65+i)}</span><span>${o}</span></button>`).join('');document.querySelectorAll('[data-opt]').forEach(b=>b.addEventListener('click',()=>{answers[idx]=Number(b.dataset.opt);renderQuestion()}));$('prevBtn').disabled=idx===0;$('nextBtn').classList.toggle('hidden',idx===questions.length-1);$('finishBtn').classList.toggle('hidden',idx!==questions.length-1);$('flagBtn').textContent=flags[idx]?'⚑ Batal tandai':'⚑ Tandai soal';$('questionNav').innerHTML=questions.map((_,i)=>`<button class="qnum ${i===idx?'current':''} ${answers[i]!==null?'answered':''} ${flags[i]?'flagged':''}" data-qnum="${i}">${i+1}</button>`).join('');document.querySelectorAll('[data-qnum]').forEach(b=>b.addEventListener('click',()=>{idx=Number(b.dataset.qnum);renderQuestion()}));renderTimer()}
 function finish(auto=false){if(finished)return;finished=true;clearInterval(tick);let correct=questions.reduce((n,q,i)=>n+(answers[i]===q.a?1:0),0),answered=answers.filter(a=>a!==null).length,score=Math.round(correct/questions.length*100);$('scoreCircle').textContent=score;$('resultTitle').textContent=score>=80?'Bagus sekali!':score>=60?'Terus tingkatkan!':'Jangan menyerah, bro!';$('resultDesc').textContent=auto?'Waktu habis. Hasil dan pembahasan latihanmu ada di bawah.':'Latihan selesai. Pelajari pembahasan agar makin memahami materi.';$('correctCount').textContent=correct;$('wrongCount').textContent=questions.length-correct;$('answeredCount').textContent=`${answered}/${questions.length}`;$('review').innerHTML=questions.map((q,i)=>{let ok=answers[i]===q.a;let chosen=answers[i]===null?'Belum dijawab':`${String.fromCharCode(65+answers[i])}. ${q.opts[answers[i]]}`;return `<div class="review-item"><strong>${i+1}. ${q.q}</strong><div class="${ok?'correct':'wrong'}">${ok?'✓ Jawaban benar':'✕ '+(answers[i]===null?'Belum dijawab':'Jawaban belum tepat')}</div><div style="font-size:13px;margin-top:6px">Jawaban kamu: ${chosen}</div><div style="font-size:13px;margin-top:4px">Kunci: <b>${String.fromCharCode(65+q.a)}. ${q.opts[q.a]}</b></div><div class="explanation"><b>Pembahasan:</b> ${q.exp}</div></div>`}).join('');$('result').classList.add('show');$('result').scrollIntoView({behavior:'smooth',block:'start'})}
+const finishWithServerGuard=finish;function escapeReview(value){return String(value??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));}async function submitOnline(auto=false){$('finishBtn').disabled=true;$('toast').classList.remove('show');try{const {data,error}=await ruangtkaSupabase.auth.getSession();if(error||!data?.session?.access_token)throw new Error('Sesi login berakhir. Login kembali sebelum mengirim jawaban.');const response=await fetch(`${RUANGTKA_SUPABASE_URL}/functions/v1/ruangtka-quiz`,{method:'POST',headers:{'Content-Type':'application/json','apikey':RUANGTKA_SUPABASE_PUBLISHABLE_KEY,'Authorization':`Bearer ${data.session.access_token}`},body:JSON.stringify({action:'submit_quiz',attempt_id:onlineAttemptId,answers:questions.map((q,i)=>({question_id:q.id,answer:answers[i]}))})});const payload=await response.json();if(!response.ok||!payload.success)throw new Error(payload.error||'Gagal mengirim jawaban.');const r=payload.result;$('scoreCircle').textContent=r.score;$('resultTitle').textContent=r.score>=80?'Bagus sekali!':r.score>=60?'Terus tingkatkan!':'Jangan menyerah, bro!';$('resultDesc').textContent=auto?'Waktu habis. Jawaban sudah dinilai dan hasil tersimpan.':'Ujian selesai. Nilai sudah dihitung server dan hasil tersimpan.';$('correctCount').textContent=r.correct;$('wrongCount').textContent=r.incorrect;$('answeredCount').textContent=`${r.answered}/${r.total_questions}`;$('review').innerHTML=payload.review.map((item,i)=>{const opts=Array.isArray(item.options)?item.options:[];const selected=item.selected_answer===null?'Belum dijawab':`${String.fromCharCode(65+item.selected_answer)}. ${escapeReview(opts[item.selected_answer]??'')}`;const key=Number.isInteger(item.correct_answer)?`${String.fromCharCode(65+item.correct_answer)}. ${escapeReview(opts[item.correct_answer]??'')}`:'Tidak tersedia';return `<div class="review-item"><strong>${i+1}. ${escapeReview(item.question)}</strong><div class="${item.is_correct?'correct':'wrong'}">${item.is_correct?'✓ Jawaban benar':`✕ ${item.selected_answer===null?'Belum dijawab':'Jawaban belum tepat'}`}</div><div style="font-size:13px;margin-top:6px">Jawaban kamu: ${selected}</div><div style="font-size:13px;margin-top:4px">Kunci: <b>${key}</b></div><div class="explanation"><b>Pembahasan:</b> ${escapeReview(item.explanation||'Belum ada pembahasan.')}</div></div>`}).join('');finished=true;onlineAttemptId=null;$('result').classList.add('show');$('result').scrollIntoView({behavior:'smooth',block:'start'});}catch(error){finished=false;$('toast').textContent=error.message||'Terjadi kesalahan saat mengirim jawaban.';$('toast').classList.add('show');}finally{$('finishBtn').disabled=false;}}finish=function(auto=false){if(onlineAttemptId){if(finished)return;finished=true;clearInterval(tick);submitOnline(auto);return}return finishWithServerGuard(auto)};
 $('startBtn').addEventListener('click',start);$('prevBtn').addEventListener('click',()=>{if(idx>0){idx--;renderQuestion()}});$('nextBtn').addEventListener('click',()=>{if(idx<questions.length-1){idx++;renderQuestion()}});$('finishBtn').addEventListener('click',()=>{let unanswered=answers.filter(a=>a===null).length;if(unanswered){$('toast').textContent=`Masih ada ${unanswered} soal yang belum dijawab. Kamu tetap bisa menyelesaikan latihan.`;$('toast').classList.add('show')}finish(false)});$('flagBtn').addEventListener('click',()=>{flags[idx]=!flags[idx];renderQuestion()});$('retryBtn').addEventListener('click',start);$('backBtn').addEventListener('click',()=>{clearInterval(tick);$('result').classList.remove('show');$('practice').classList.remove('show');$('subjectGrid').scrollIntoView({behavior:'smooth',block:'start'})});renderSubjects();updateSetup();
 </script>
 <script>
@@ -112,127 +126,55 @@ adminField('adminDelete').addEventListener('click',()=>{if(adminEditing<0)return
 adminField('adminExport').addEventListener('click',adminDownload);adminField('adminImportBtn').addEventListener('click',()=>adminField('adminImportFile').click());adminField('adminImportFile').addEventListener('change',async e=>{const file=e.target.files[0];if(!file)return;try{const parsed=JSON.parse(await file.text());if(!parsed||typeof parsed!=='object'||!Object.keys(bank).every(k=>Array.isArray(parsed[k]?.questions)))throw new Error('Format tidak sesuai');for(const k of Object.keys(bank)){if(!Array.isArray(parsed[k].questions)||parsed[k].questions.some(q=>typeof q.q!=='string'||!Array.isArray(q.opts)||q.opts.length!==5||!Number.isInteger(q.a)||q.a<0||q.a>4||typeof q.exp!=='string'))throw new Error('Data soal tidak valid');}for(const k of Object.keys(bank))bank[k].questions=parsed[k].questions;renderSubjects();updateSetup();adminRefreshList();adminClear();adminMessage('Impor berhasil. Bank soal demo sudah diperbarui.');}catch(err){adminMessage('Gagal impor: pastikan file JSON berasal dari ekspor RuangTKA dan formatnya benar.')}e.target.value='';});
 adminInit();
 </script>
-<!-- RuangTKA: tes login dan koneksi Supabase -->
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
-
-<section id="supabase-test" style="max-width:700px;margin:24px auto;padding:20px;background:#fff;border:1px solid #dbe5ef;border-radius:14px;font-family:Arial,sans-serif;color:#173b60">
-  <h2>Login RuangTKA</h2>
-  <p>Masuk untuk menguji koneksi akun dan bank soal.</p>
-
-  <form id="login-form">
-    <label for="login-email">Email</label><br>
-    <input id="login-email" type="email" required autocomplete="username"
-      style="width:100%;padding:10px;margin:6px 0 12px;box-sizing:border-box">
-
-    <label for="login-password">Password</label><br>
-    <input id="login-password" type="password" required autocomplete="current-password"
-      style="width:100%;padding:10px;margin:6px 0 12px;box-sizing:border-box">
-
-    <button type="submit" style="padding:10px 16px;cursor:pointer">Login dan tes database</button>
-    <button type="button" id="logout-button" style="padding:10px 16px;cursor:pointer">Logout</button>
-  </form>
-
-  <p id="connection-status" role="status">Belum terhubung.</p>
-  <div id="question-results"></div>
-</section>
-
 <script>
-(() => {
-  // Ganti kedua nilai ini dengan konfigurasi proyek Supabase milik Anda.
-  const SUPABASE_URL = "https://txborleyneuunujusesw.supabase.co";
-  const SUPABASE_PUBLISHABLE_KEY = "sb_publishable_eIc7tHuSDYg6HbnZzH9-Kg_kHrNDri2";
-
-  const statusBox = document.getElementById("connection-status");
-  const resultsBox = document.getElementById("question-results");
-  const form = document.getElementById("login-form");
-  const logoutButton = document.getElementById("logout-button");
-
-  if (
-    SUPABASE_URL.includes("TEMPEL_") ||
-    SUPABASE_PUBLISHABLE_KEY.includes("TEMPEL_")
-  ) {
-    statusBox.textContent = "Konfigurasi Supabase belum diisi.";
-    return;
-  }
-
-  const client = window.supabase.createClient(
-    SUPABASE_URL,
-    SUPABASE_PUBLISHABLE_KEY
-  );
-
-  async function loadQuestions() {
-    statusBox.textContent = "Login berhasil. Membaca bank soal...";
-    resultsBox.replaceChildren();
-
-    const { data, error } = await client
-      .from("questions")
-      .select("id, subject, question, options, correct_answer, explanation")
-      .order("id")
-      .limit(100);
-
-    if (error) {
-      statusBox.textContent = "Login berhasil, tetapi soal gagal dibaca: " + error.message;
-      return;
-    }
-
-    statusBox.textContent = "Koneksi berhasil. " + data.length + " soal berhasil dibaca.";
-
-    if (data.length === 0) {
-      resultsBox.textContent = "Tabel berhasil diakses, tetapi belum ada soal.";
-      return;
-    }
-
-    const heading = document.createElement("h3");
-    heading.textContent = "Contoh soal dari database";
-    resultsBox.appendChild(heading);
-
-    data.slice(0, 5).forEach((item) => {
-      const article = document.createElement("article");
-      article.style.cssText = "padding:12px 0;border-top:1px solid #dbe5ef";
-
-      const subject = document.createElement("strong");
-      subject.textContent = item.subject || "Tanpa mata pelajaran";
-
-      const question = document.createElement("p");
-      question.textContent = item.question || "(Soal kosong)";
-
-      article.append(subject, question);
-      resultsBox.appendChild(article);
-    });
-  }
-
-  form.addEventListener("submit", async (event) => {
+// Konfigurasi publik Supabase. Publishable key aman digunakan di browser; jangan pernah menaruh secret/service-role key di sini.
+const RUANGTKA_SUPABASE_URL = 'https://txborleyneuunujusesw.supabase.co';
+const RUANGTKA_SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_eIc7tHuSDYg6HbnZzH9-Kg_kHrNDri2';
+const authStatus = document.getElementById('studentAuthStatus');
+const loginForm = document.getElementById('studentLoginForm');
+const loginButton = document.getElementById('studentLoginBtn');
+const sessionPanel = document.getElementById('studentSession');
+function setAuthMessage(message, isError = false) {
+  authStatus.textContent = message;
+  authStatus.style.color = isError ? '#DC6262' : '';
+}
+function showStudentSession(user) {
+  const signedIn = Boolean(user);
+  loginForm.classList.toggle('hidden', signedIn);
+  sessionPanel.classList.toggle('hidden', !signedIn);
+  document.getElementById('studentIdentity').textContent = user ? `Login sebagai: ${user.email || 'Siswa'} • Sesi login aktif.` : '';
+  setAuthMessage(signedIn ? 'Akun siswa berhasil terhubung. Sekarang sesi login tersedia untuk integrasi latihan.' : 'Silakan login dengan akun siswa yang terdaftar.');
+}
+if (!window.supabase || !window.supabase.createClient) {
+  setAuthMessage('Layanan login gagal dimuat. Periksa koneksi internet lalu muat ulang halaman.', true);
+} else {
+  const ruangtkaSupabase = window.supabase.createClient(RUANGTKA_SUPABASE_URL, RUANGTKA_SUPABASE_PUBLISHABLE_KEY, {
+    auth: { persistSession: true, autoRefreshToken: true, detectSessionInUrl: true }
+  });
+  window.ruangtkaSupabase = ruangtkaSupabase;
+  ruangtkaSupabase.auth.getSession().then(({ data, error }) => {
+    if (error) setAuthMessage('Tidak dapat memeriksa sesi login. Silakan coba login kembali.', true);
+    showStudentSession(data?.session?.user || null);
+  });
+  ruangtkaSupabase.auth.onAuthStateChange((_event, session) => showStudentSession(session?.user || null));
+  loginForm.addEventListener('submit', async (event) => {
     event.preventDefault();
-    statusBox.textContent = "Memeriksa login...";
-    resultsBox.replaceChildren();
-
-    const email = document.getElementById("login-email").value;
-    const password = document.getElementById("login-password").value;
-
-    const { error } = await client.auth.signInWithPassword({ email, password });
-
+    const email = document.getElementById('studentEmail').value.trim();
+    const password = document.getElementById('studentPassword').value;
+    loginButton.disabled = true;
+    setAuthMessage('Memeriksa akun siswa...');
+    const { data, error } = await ruangtkaSupabase.auth.signInWithPassword({ email, password });
+    loginButton.disabled = false;
     if (error) {
-      statusBox.textContent = "Login gagal: " + error.message;
+      setAuthMessage('Login gagal. Periksa email dan kata sandi, atau pastikan akun sudah dikonfirmasi.', true);
       return;
     }
-
-    document.getElementById("login-password").value = "";
-    await loadQuestions();
+    document.getElementById('studentPassword').value = '';
+    showStudentSession(data.user);
   });
-
-  logoutButton.addEventListener("click", async () => {
-    const { error } = await client.auth.signOut();
-    resultsBox.replaceChildren();
-    statusBox.textContent = error ? "Logout gagal: " + error.message : "Anda sudah logout.";
+  document.getElementById('studentLogoutBtn').addEventListener('click', async () => {
+    const { error } = await ruangtkaSupabase.auth.signOut();
+    if (error) setAuthMessage('Logout belum berhasil. Silakan coba lagi.', true);
   });
-
-  client.auth.getSession().then(({ data, error }) => {
-    if (error) {
-      statusBox.textContent = "Gagal memeriksa sesi: " + error.message;
-    } else if (data.session) {
-      loadQuestions();
-    }
-  });
-})();
-</script>
-</body></html>
+}
+</script></body></html>
